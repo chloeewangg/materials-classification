@@ -1,7 +1,8 @@
 import pandas as pd
 import numpy as np
-from sklearn.model_selection import train_test_split
+from sklearn.model_selection import train_test_split, cross_val_score, cross_val_predict, StratifiedKFold
 from sklearn.preprocessing import StandardScaler, LabelEncoder
+from sklearn.decomposition import PCA
 from sklearn.metrics import accuracy_score, confusion_matrix
 import torch
 from torch.utils.data import DataLoader
@@ -34,6 +35,11 @@ def load_and_preprocess_data(data_path, test_size=0.2, random_state=42):
     print(f"Data shape: {X.shape}")
     print(f"Num classes: {len(np.unique(y))}")
     print(f"Classes: {np.unique(y)}")
+
+    unique_classes, counts = np.unique(y, return_counts=True)
+    print("Num samples per class:")
+    for cls, cnt in zip(unique_classes, counts):
+        print(f"{cls}: {cnt}")
     
     label_encoder = LabelEncoder()
     y_encoded = label_encoder.fit_transform(y)
@@ -55,33 +61,62 @@ def load_and_preprocess_data(data_path, test_size=0.2, random_state=42):
     
     return X_train_scaled, X_test_scaled, y_train, y_test, n_features, n_classes, label_encoder
 
-def train_sklearn_classifiers(X_train_scaled, X_test_scaled, y_train, y_test):
+def train_sklearn_classifiers(X_train_scaled, X_test_scaled, y_train, y_test, pca=False, n_components=None, cv=10):
     """
-    Train sklearn classifiers and return accuracy results.
+    Train sklearn classifiers using k-fold cross-validation and return accuracy results.
     
     Args:
         X_train_scaled: Scaled training features
         X_test_scaled: Scaled test features
         y_train: Training labels
         y_test: Test labels
+        pca: Boolean flag to apply PCA dimensionality reduction (default: False)
+        n_components: Number of components to keep. If float (0 < n_components < 1), 
+                     it's treated as the variance ratio to retain. If int, it's the 
+                     number of components. If None and pca=True, keeps all components.
+        cv: Number of folds for cross-validation (default: 10)
     
     Returns:
-        Dictionary mapping classifier names to (accuracy, confusion_matrix)
+        Dictionary mapping classifier names to {"accuracy", "confusion_matrix"}
     """
+    # Combine train and test data for cross-validation
+    X_all = np.vstack([X_train_scaled, X_test_scaled])
+    y_all = np.hstack([y_train, y_test])
+    
+    # Apply PCA if requested
+    if pca:
+        pca_transformer = PCA(n_components=n_components)
+        X_all = pca_transformer.fit_transform(X_all)
+        
+        if n_components is None or (isinstance(n_components, float) and 0 < n_components < 1):
+            actual_components = X_all.shape[1]
+            explained_variance = pca_transformer.explained_variance_ratio_.sum()
+            print(f"PCA applied: {actual_components} components, {explained_variance:.4f} variance explained")
+        else:
+            print(f"PCA applied: {X_all.shape[1]} components")
+    
+    # Use stratified k-fold for cross-validation
+    cv_fold = StratifiedKFold(n_splits=cv, shuffle=True, random_state=42)
+    
     classifiers = get_sklearn_classifiers()
     results = {}
     
     for name, clf in classifiers.items():
-        clf.fit(X_train_scaled, y_train)
-        y_pred = clf.predict(X_test_scaled)
-        accuracy = accuracy_score(y_test, y_pred)
-        cm = confusion_matrix(y_test, y_pred)
+        # Perform cross-validation to get accuracy scores
+        cv_scores = cross_val_score(clf, X_all, y_all, cv=cv_fold, scoring='accuracy')
+        accuracy = cv_scores.mean()
+        accuracy_std = cv_scores.std()
+        
+        # Get cross-validation predictions for confusion matrix
+        y_pred = cross_val_predict(clf, X_all, y_all, cv=cv_fold)
+        cm = confusion_matrix(y_all, y_pred)
+        
         results[name] = {"accuracy": accuracy, "confusion_matrix": cm}
-        print(f"{name} Accuracy: {accuracy:.4f}")
+        print(f"{name} Accuracy: {accuracy:.4f} (+/- {accuracy_std:.4f})")
     
     return results
 
-def train_pytorch_classifiers(X_train_scaled, X_test_scaled, y_train, y_test, n_features, n_classes, epochs=50, batch_size=32):
+def train_pytorch_classifiers(X_train_scaled, X_test_scaled, y_train, y_test, n_features, n_classes, epochs=200, batch_size=32, pca=False, n_components=None):
     """
     Train PyTorch neural network classifiers and return accuracy results.
     
@@ -90,14 +125,34 @@ def train_pytorch_classifiers(X_train_scaled, X_test_scaled, y_train, y_test, n_
         X_test_scaled: Scaled test features
         y_train: Training labels
         y_test: Test labels
-        n_features: Number of input features
+        n_features: Number of input features (before PCA if applied)
         n_classes: Number of output classes
         epochs: Number of training epochs
         batch_size: Batch size for training
+        pca: Boolean flag to apply PCA dimensionality reduction (default: False)
+        n_components: Number of components to keep. If float (0 < n_components < 1), 
+                     it's treated as the variance ratio to retain. If int, it's the 
+                     number of components. If None and pca=True, keeps all components.
     
     Returns:
         Dictionary mapping model names to {"accuracy", "confusion_matrix", "loss_history"}
     """
+    # Apply PCA if requested
+    if pca:
+        pca_transformer = PCA(n_components=n_components)
+        X_train_scaled = pca_transformer.fit_transform(X_train_scaled)
+        X_test_scaled = pca_transformer.transform(X_test_scaled)
+        
+        # Update n_features to match the reduced dimensionality
+        n_features = X_train_scaled.shape[1]
+        
+        if n_components is None or (isinstance(n_components, float) and 0 < n_components < 1):
+            actual_components = X_train_scaled.shape[1]
+            explained_variance = pca_transformer.explained_variance_ratio_.sum()
+            print(f"PCA applied: {actual_components} components, {explained_variance:.4f} variance explained")
+        else:
+            print(f"PCA applied: {X_train_scaled.shape[1]} components")
+    
     X_train_tensor = torch.FloatTensor(X_train_scaled)
     X_test_tensor = torch.FloatTensor(X_test_scaled)
     y_train_tensor = torch.LongTensor(y_train)
@@ -145,17 +200,6 @@ def main():
         # Combine results and print
         all_results = {**sklearn_results, **pytorch_results}
         print_results(all_results)
-        
-        # Print confusion matrices (labels are encoded integers)
-        for name, metrics in all_results.items():
-            cm = metrics.get("confusion_matrix")
-            if cm is not None:
-                print(f"\nConfusion matrix for {name}:")
-                print(cm)
-        
-        # Example: decode label integers back to original class names for later plotting
-        class_names = label_encoder.classes_
-        print("\nClass order for confusion matrices:", class_names)
         
     except Exception as e:
         print(f"Error: {e}")

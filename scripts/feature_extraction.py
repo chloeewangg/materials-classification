@@ -20,7 +20,6 @@ def get_features(data, time):
     features['mean'] = mean(data)
     features['mav'] = mean_absolute_value(data)
     features['std'] = std(data)
-    features['variance'] = variance(data)
     features['min'] = min_value(data)
     features['max'] = max_value(data)
     features['zero_crossing_rate'] = zero_crossing_rate(data)
@@ -82,16 +81,94 @@ def process_csv(csv_path, folder_name):
         # 'distance': distance
     }
     
+    # Store channel data and features for cross-channel computations
+    channel_data_list = []
+    channel_features_list = []
+    
     # Extract features from each channel
     for i, col in enumerate(data_cols):
         channel_data = df[col].values
+        channel_data_list.append(channel_data)
         
         # Extract features for this channel
         channel_features = get_features(channel_data, time)
+        channel_features_list.append(channel_features)
         
         # Add features with format: feature_name_channel_index
         for feat_name, feat_value in channel_features.items():
             features[f'{feat_name}_{i}'] = feat_value
+    
+    # Compute cross-channel features
+    num_channels = len(channel_features_list)
+    
+    if num_channels >= 2:
+        # Cross-channel correlations
+        for i in range(num_channels):
+            for j in range(i + 1, num_channels):
+                corr = cross_channel_correlation(channel_data_list[i], channel_data_list[j])
+                features[f'correlation_{i}_{j}'] = corr
+        
+        # Frequency ratios
+        freq_key = 'peak_frequency'
+        if all(freq_key in cf for cf in channel_features_list):
+            freqs = [cf[freq_key] for cf in channel_features_list]
+            # Ratios between all pairs
+            for i in range(num_channels):
+                for j in range(i + 1, num_channels):
+                    ratio = frequency_ratio(freqs[i], freqs[j])
+                    features[f'freq_ratio_{i}_{j}'] = ratio
+                    # Also add inverse ratio
+                    features[f'freq_ratio_{j}_{i}'] = frequency_ratio(freqs[j], freqs[i])
+        
+        # Energy ratios
+        energy_key = 'spectral_energy'
+        if all(energy_key in cf for cf in channel_features_list):
+            energies = [cf[energy_key] for cf in channel_features_list]
+            # Ratios between all pairs
+            for i in range(num_channels):
+                for j in range(i + 1, num_channels):
+                    ratio = energy_ratio(energies[i], energies[j])
+                    features[f'energy_ratio_{i}_{j}'] = ratio
+                    # Also add inverse ratio
+                    features[f'energy_ratio_{j}_{i}'] = energy_ratio(energies[j], energies[i])
+        
+        # Mean ratios and differences
+        mean_key = 'mean'
+        if all(mean_key in cf for cf in channel_features_list):
+            means = [cf[mean_key] for cf in channel_features_list]
+            for i in range(num_channels):
+                for j in range(i + 1, num_channels):
+                    features[f'mean_ratio_{i}_{j}'] = feature_ratio(means[i], means[j])
+                    features[f'mean_diff_{i}_{j}'] = feature_difference(means[i], means[j])
+        
+        # MAV (Mean Absolute Value) ratios and differences
+        mav_key = 'mav'
+        if all(mav_key in cf for cf in channel_features_list):
+            mavs = [cf[mav_key] for cf in channel_features_list]
+            for i in range(num_channels):
+                for j in range(i + 1, num_channels):
+                    features[f'mav_ratio_{i}_{j}'] = feature_ratio(mavs[i], mavs[j])
+                    features[f'mav_diff_{i}_{j}'] = feature_difference(mavs[i], mavs[j])
+        
+        # Std ratios and differences
+        std_key = 'std'
+        if all(std_key in cf for cf in channel_features_list):
+            stds = [cf[std_key] for cf in channel_features_list]
+            for i in range(num_channels):
+                for j in range(i + 1, num_channels):
+                    features[f'std_ratio_{i}_{j}'] = feature_ratio(stds[i], stds[j])
+                    features[f'std_diff_{i}_{j}'] = feature_difference(stds[i], stds[j])
+        
+        # Cross-channel statistics (aggregate across channels for each feature type)
+        feature_types = ['mean', 'mav', 'std', 'peak_frequency', 'spectral_energy']
+        for feat_type in feature_types:
+            if all(feat_type in cf for cf in channel_features_list):
+                values = [cf[feat_type] for cf in channel_features_list]
+                features[f'{feat_type}_cross_mean'] = cross_channel_mean(values)
+                features[f'{feat_type}_cross_std'] = cross_channel_std(values)
+                features[f'{feat_type}_cross_max'] = cross_channel_max(values)
+                features[f'{feat_type}_cross_min'] = cross_channel_min(values)
+                features[f'{feat_type}_cross_range'] = cross_channel_range(values)
     
     return features
 

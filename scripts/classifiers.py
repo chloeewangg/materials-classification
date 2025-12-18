@@ -20,10 +20,10 @@ def get_sklearn_classifiers():
             n_neighbors=7,
             weights='distance',
             p=2),
-        'Logistic Regression': LogisticRegression(
-            penalty='l2',
-            C=0.1,
-            class_weight='balanced'),
+        # 'Logistic Regression': LogisticRegression(
+        #     penalty='l2',
+        #     C=0.1,
+        #     class_weight='balanced'),
         'Random Forest': RandomForestClassifier(
             n_estimators=300,
             max_depth=None,
@@ -121,7 +121,7 @@ def get_pytorch_models(input_dim, num_classes):
         'Deep NN (256-128-64)': DeepNN(input_dim, num_classes)
     }
 
-def train_pytorch_model(model, train_loader, epochs=50):
+def train_pytorch_model(model, train_loader, epochs=100):
     """
     Args:
         model: PyTorch model to train
