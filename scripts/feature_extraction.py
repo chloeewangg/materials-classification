@@ -77,7 +77,7 @@ def process_csv(csv_path, folder_name):
     # Initialize feature dictionary with labels
     features = {
         'material': material,
-        # 'location': location,
+        'location': location,
         # 'distance': distance
     }
     

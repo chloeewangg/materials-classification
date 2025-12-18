@@ -4,6 +4,7 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.naive_bayes import GaussianNB
 from sklearn.tree import DecisionTreeClassifier
+from sklearn.multioutput import MultiOutputClassifier
 import torch
 import torch.nn as nn
 import torch.optim as optim
@@ -34,6 +35,22 @@ def get_sklearn_classifiers():
             class_weight='balanced',
             random_state=42)
     }
+
+def get_multilabel_classifiers():
+    """
+    Returns multilabel classifiers using MultiOutputClassifier wrapper.
+    Each classifier will predict 2 labels (e.g., material and location).
+    
+    Returns:
+        Dictionary mapping classifier names to MultiOutputClassifier instances
+    """
+    base_classifiers = get_sklearn_classifiers()
+    multilabel_classifiers = {}
+    
+    for name, clf in base_classifiers.items():
+        multilabel_classifiers[f'Multilabel {name}'] = MultiOutputClassifier(clf)
+    
+    return multilabel_classifiers
 
 class MaterialDataset(Dataset):
     """PyTorch Dataset for Dataloader"""
