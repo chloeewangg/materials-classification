@@ -1,9 +1,10 @@
 import pandas as pd
 import numpy as np
-from sklearn.model_selection import train_test_split, cross_val_score, cross_val_predict, StratifiedKFold, KFold
+import matplotlib.pyplot as plt
+from sklearn.model_selection import train_test_split, cross_val_score, cross_val_predict, StratifiedKFold, KFold, learning_curve
 from sklearn.preprocessing import StandardScaler, LabelEncoder
 from sklearn.decomposition import PCA
-from sklearn.metrics import accuracy_score, confusion_matrix
+from sklearn.metrics import accuracy_score, confusion_matrix, make_scorer
 import torch
 from torch.utils.data import DataLoader
 
@@ -240,10 +241,19 @@ def load_multilabel_data(data_path, label_columns=['material', 'location'], test
     
     return X_train_scaled, X_test_scaled, y_train, y_test, n_features, label_encoders, scaler
 
-def train_multilabel_classifiers(X_train_scaled, X_test_scaled, y_train, y_test, label_names=['material', 'location'], pca=False, n_components=None, cv=10):
+def train_multilabel_classifiers(
+    X_train_scaled,
+    X_test_scaled,
+    y_train,
+    y_test,
+    label_names=['material', 'location'],
+    pca=False,
+    n_components=None,
+    cv=10
+):
     """
     Train multilabel classifiers using k-fold cross-validation and return accuracy results.
-    
+
     Args:
         X_train_scaled: Scaled training features
         X_test_scaled: Scaled test features
@@ -255,76 +265,197 @@ def train_multilabel_classifiers(X_train_scaled, X_test_scaled, y_train, y_test,
                      it's treated as the variance ratio to retain. If int, it's the 
                      number of components. If None and pca=True, keeps all components.
         cv: Number of folds for cross-validation (default: 10)
-    
+
     Returns:
-        Dictionary mapping classifier names to {"accuracy", "hamming_loss", "jaccard_score", 
-        "per_label_accuracy", "confusion_matrices"}
+        Dictionary mapping classifier names to 
+        {
+            "accuracy", "accuracy_std",
+            "overall_precision",
+            "overall_recall",
+            "overall_f1",
+            "per_label_accuracy",
+            "per_label_precision",
+            "per_label_recall",
+            "per_label_f1",
+            "confusion_matrices"
+        }
     """
+    from sklearn.metrics import precision_score, recall_score, f1_score
+
     # Combine train and test data for cross-validation
     X_all = np.vstack([X_train_scaled, X_test_scaled])
     y_all = np.vstack([y_train, y_test])
-    
+
     # Apply PCA if requested
     if pca:
         pca_transformer = PCA(n_components=n_components)
         X_all = pca_transformer.fit_transform(X_all)
-        
+
         if n_components is None or (isinstance(n_components, float) and 0 < n_components < 1):
             actual_components = X_all.shape[1]
             explained_variance = pca_transformer.explained_variance_ratio_.sum()
             print(f"PCA applied: {actual_components} components, {explained_variance:.4f} variance explained")
         else:
             print(f"PCA applied: {X_all.shape[1]} components")
-    
-    # Use regular k-fold for cross-validation
-    # (StratifiedKFold doesn't support multilabel directly)
+
+    # Use regular k-fold for cross-validation (StratifiedKFold doesn't support multilabel directly)
     cv_fold = KFold(n_splits=cv, shuffle=True, random_state=42)
-    
+
     multilabel_classifiers = get_multilabel_classifiers()
     results = {}
-    
+
     for name, clf in multilabel_classifiers.items():
         # Get cross-validation predictions
         y_pred = cross_val_predict(clf, X_all, y_all, cv=cv_fold)
-        
+
         # Calculate exact match accuracy manually using cross-validation
         # (all labels must match for a sample to be considered correct)
         cv_scores = []
         for train_idx, val_idx in cv_fold.split(X_all, y_all):
             y_val_true = y_all[val_idx]
             y_val_pred = y_pred[val_idx]
-            
-            # Calculate exact match accuracy (all labels must match)
             exact_match = np.all(y_val_pred == y_val_true, axis=1)
             accuracy_fold = np.mean(exact_match)
             cv_scores.append(accuracy_fold)
-        
+
         accuracy = np.mean(cv_scores)
         accuracy_std = np.std(cv_scores)
-        
-        # Calculate per-label accuracy
+
+        # Calculate overall (exact match) precision, recall, and f1
+        y_all_flat = y_all.flatten()
+        y_pred_flat = y_pred.flatten()
+        overall_precision = precision_score(y_all_flat, y_pred_flat, average='micro', zero_division=0)
+        overall_recall = recall_score(y_all_flat, y_pred_flat, average='micro', zero_division=0)
+        overall_f1 = f1_score(y_all_flat, y_pred_flat, average='micro', zero_division=0)
+
+        # Calculate per-label metrics
         per_label_acc = []
+        per_label_precision = []
+        per_label_recall = []
+        per_label_f1 = []
         confusion_matrices = []
         for i, label_name in enumerate(label_names):
             label_acc = accuracy_score(y_all[:, i], y_pred[:, i])
+            label_precision = precision_score(y_all[:, i], y_pred[:, i], average='weighted', zero_division=0)
+            label_recall = recall_score(y_all[:, i], y_pred[:, i], average='weighted', zero_division=0)
+            label_f1 = f1_score(y_all[:, i], y_pred[:, i], average='weighted', zero_division=0)
             per_label_acc.append(label_acc)
+            per_label_precision.append(label_precision)
+            per_label_recall.append(label_recall)
+            per_label_f1.append(label_f1)
             cm = confusion_matrix(y_all[:, i], y_pred[:, i])
             confusion_matrices.append(cm)
-        
+
         results[name] = {
             "accuracy": accuracy,
             "accuracy_std": accuracy_std,
+            "overall_precision": overall_precision,
+            "overall_recall": overall_recall,
+            "overall_f1": overall_f1,
             "per_label_accuracy": dict(zip(label_names, per_label_acc)),
+            "per_label_precision": dict(zip(label_names, per_label_precision)),
+            "per_label_recall": dict(zip(label_names, per_label_recall)),
+            "per_label_f1": dict(zip(label_names, per_label_f1)),
             "confusion_matrices": dict(zip(label_names, confusion_matrices))
         }
-        
+
         print(f"{name}")
-        print(f"  Overall Accuracy: {accuracy:.4f} (+/- {accuracy_std:.4f})")
-        for label_name, acc in zip(label_names, per_label_acc):
-            print(f"  {label_name} Accuracy: {acc:.4f}")
+        print(f"  Exact Accuracy: {accuracy:.4f} (+/- {accuracy_std:.4f})")
+        print(f"  Micro-avg Precision: {overall_precision:.4f}")
+        print(f"  Micro-avg Recall:    {overall_recall:.4f}")
+        print(f"  Micro-avg F1:        {overall_f1:.4f}")
+        #for j, label_name in enumerate(label_names):
+        #    print(f"  {label_name} - Accuracy: {per_label_acc[j]:.4f}, Precision: {per_label_precision[j]:.4f}, Recall: {per_label_recall[j]:.4f}, F1: {per_label_f1[j]:.4f}")
         print()
-    
+
     return results
+
+
+def plot_random_forest_lc(
+    X, 
+    y, 
+    # output_dir, 
+    label_names=['Material', 'Location'], 
+    title="Random Forest Learning Curve", cv=10, 
+    train_sizes=np.linspace(0.1, 1.0, 10)):
+    """
+    Plot learning curves on separate plots: overall and per-label accuracies.
+    """
+    # os.makedirs(output_dir, exist_ok=True)
+    estimator = get_sklearn_classifiers()["Random Forest"]
+    clf = MultiOutputClassifier(estimator)
+    
+    def exact_match_scorer(y_true, y_pred):
+        exact_match = np.all(y_pred == y_true, axis=1)
+        return np.mean(exact_match)
+    
+    # Wrap the custom scorer properly
+    exact_match_scorer_wrapped = make_scorer(exact_match_scorer)
+    
+    cv_fold = KFold(n_splits=cv, shuffle=True, random_state=42)
+    
+    # Overall learning curve
+    train_sizes_abs, train_scores, val_scores = learning_curve(
+        clf, X, y, cv=cv_fold, train_sizes=train_sizes, 
+        scoring=exact_match_scorer_wrapped, n_jobs=-1
+    )
+    
+    val_scores_mean = np.mean(val_scores, axis=1)
+    val_scores_std = np.std(val_scores, axis=1)
+    
+    # Per-label learning curves
+    per_label_val_scores = {}
+    for i, label_name in enumerate(label_names):
+        y_single = y[:, i]
+        single_clf = estimator
+        
+        # Use StratifiedKFold for single-label classification
+        if isinstance(cv, int):
+            single_cv_fold = StratifiedKFold(n_splits=cv, shuffle=True, random_state=42)
+        else:
+            single_cv_fold = cv
+        
+        _, _, val_scores_label = learning_curve(
+            single_clf, X, y_single, cv=single_cv_fold, train_sizes=train_sizes,
+            scoring='accuracy', n_jobs=-1
+        )
+        
+        per_label_val_scores[label_name] = {
+            'mean': np.mean(val_scores_label, axis=1),
+            'std': np.std(val_scores_label, axis=1)
+        }
+    
+    plt.figure(figsize=(10, 6))
+    plt.fill_between(train_sizes_abs, val_scores_mean - val_scores_std,
+                     val_scores_mean + val_scores_std, alpha=0.2, color="blue")
+    plt.plot(train_sizes_abs, val_scores_mean, 'o-', color="blue", 
+             label="Overall", linewidth=2)
+    plt.xlabel("Number of Training Samples")
+    plt.ylabel("Accuracy")
+    plt.title(f"{title} - Overall Accuracy")
+    plt.tight_layout()
+    #filename = f"{title.replace(' ', '_')}_overall.pdf"
+    #filepath = os.path.join(output_dir, filename)
+    #plt.savefig(filepath, format='pdf', bbox_inches='tight')
+    plt.show()
+    
+    for idx, label_name in enumerate(label_names):
+        val_mean = per_label_val_scores[label_name]['mean']
+        val_std = per_label_val_scores[label_name]['std']
+        
+        plt.figure(figsize=(10, 6))
+        plt.fill_between(train_sizes_abs, val_mean - val_std,
+                         val_mean + val_std, alpha=0.2, color="blue")
+        plt.plot(train_sizes_abs, val_mean, 'o-', color="blue", 
+                 label=f"{label_name} Accuracy", linewidth=2)
+        plt.xlabel("Number of Training Samples")
+        plt.ylabel("Accuracy")
+        plt.title(f"{title} - {label_name.capitalize()} Accuracy")
+        plt.tight_layout()
+        #filename = f"{title.replace(' ', '_')}_{label_name}.pdf"
+        #filepath = os.path.join(output_dir, filename)
+        #plt.savefig(filepath, format='pdf', bbox_inches='tight')
+        plt.show()
 
 def print_results(results):
     print("\nModel Accuracies:")

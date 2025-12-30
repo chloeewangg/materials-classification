@@ -69,7 +69,7 @@ def process_csv(csv_path, folder_name):
     columns = df.columns.tolist()
     
     time_col = columns[0]
-    data_cols = columns[1:4]  
+    data_cols = columns[1:3]  
     
     time = pd.to_datetime(df[time_col]).astype(np.int64) / 1e9  # Convert to seconds
     time = time.values
