@@ -7,10 +7,8 @@ from sklearn.decomposition import PCA
 from sklearn.metrics import accuracy_score, confusion_matrix, make_scorer
 import torch
 from torch.utils.data import DataLoader
-
 import os
-os.chdir("..") 
-from scripts.classifiers import *
+from classifiers import *
 
 def load_and_preprocess_data(data_path, test_size=0.2, random_state=42):
     """
@@ -370,18 +368,18 @@ def train_multilabel_classifiers(
 
     return results
 
-
 def plot_random_forest_lc(
     X, 
     y, 
-    # output_dir, 
+    output_dir=None, 
     label_names=['Material', 'Location'], 
     title="Random Forest Learning Curve", cv=10, 
     train_sizes=np.linspace(0.1, 1.0, 10)):
     """
     Plot learning curves on separate plots: overall and per-label accuracies.
     """
-    # os.makedirs(output_dir, exist_ok=True)
+    if output_dir is not None:
+        os.makedirs(output_dir, exist_ok=True)
     estimator = get_sklearn_classifiers()["Random Forest"]
     clf = MultiOutputClassifier(estimator)
     
@@ -434,10 +432,13 @@ def plot_random_forest_lc(
     plt.ylabel("Accuracy")
     plt.title(f"{title} - Overall Accuracy")
     plt.tight_layout()
-    #filename = f"{title.replace(' ', '_')}_overall.pdf"
-    #filepath = os.path.join(output_dir, filename)
-    #plt.savefig(filepath, format='pdf', bbox_inches='tight')
-    plt.show()
+    if output_dir is not None:
+        filename = f"{title.replace(' ', '_')}_overall.pdf"
+        filepath = os.path.join(output_dir, filename)
+        plt.savefig(filepath, format='pdf', bbox_inches='tight')
+        plt.close()
+    else:
+        plt.show()
     
     for idx, label_name in enumerate(label_names):
         val_mean = per_label_val_scores[label_name]['mean']
@@ -452,10 +453,13 @@ def plot_random_forest_lc(
         plt.ylabel("Accuracy")
         plt.title(f"{title} - {label_name.capitalize()} Accuracy")
         plt.tight_layout()
-        #filename = f"{title.replace(' ', '_')}_{label_name}.pdf"
-        #filepath = os.path.join(output_dir, filename)
-        #plt.savefig(filepath, format='pdf', bbox_inches='tight')
-        plt.show()
+        if output_dir is not None:
+            filename = f"{title.replace(' ', '_')}_{label_name}.pdf"
+            filepath = os.path.join(output_dir, filename)
+            plt.savefig(filepath, format='pdf', bbox_inches='tight')
+            plt.close()
+        else:
+            plt.show()
 
 def print_results(results):
     print("\nModel Accuracies:")
