@@ -6,6 +6,7 @@ import sys
 import os
 from pathlib import Path
 from train_and_test import *
+import matplotlib as mpl
 
 def main(data_path, output_dir):
     X_train_scaled, X_test_scaled, y_train, y_test, n_features, label_encoders, scaler = load_multilabel_data(data_path)
@@ -28,6 +29,9 @@ def main(data_path, output_dir):
     plot_all_metrics(results, output_dir)
 
 def plot_cms(results, label_encoders, label_names, output_dir):
+    mpl.rcParams['pdf.fonttype'] = 42   
+    mpl.rcParams['ps.fonttype'] = 42
+
     for name, metrics in results.items():
         confusion_matrices = metrics.get("confusion_matrices")
         classifier_name = name.replace("Multilabel ", "")
@@ -68,8 +72,10 @@ def plot_cms(results, label_encoders, label_names, output_dir):
             plt.savefig(filepath, format='pdf', bbox_inches='tight')
             plt.close()
 
-
 def plot_all_metrics(results, output_dir):
+    mpl.rcParams['pdf.fonttype'] = 42   
+    mpl.rcParams['ps.fonttype'] = 42
+    
     model_names = list(results.keys())
     display_names = [name.replace("Multilabel ", "") for name in model_names]
     

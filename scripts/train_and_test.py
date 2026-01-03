@@ -9,6 +9,7 @@ import torch
 from torch.utils.data import DataLoader
 import os
 from classifiers import *
+import matplotlib as mpl
 
 def load_and_preprocess_data(data_path, test_size=0.2, random_state=42):
     """
@@ -378,6 +379,9 @@ def plot_random_forest_lc(
     """
     Plot learning curves on separate plots: overall and per-label accuracies.
     """
+    mpl.rcParams['pdf.fonttype'] = 42   
+    mpl.rcParams['ps.fonttype'] = 42
+
     if output_dir is not None:
         os.makedirs(output_dir, exist_ok=True)
     estimator = get_sklearn_classifiers()["Random Forest"]
